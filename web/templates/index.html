@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>淘宝用户行为数仓 - 可视化大屏</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body { margin: 0; padding: 20px; background-color: #f4f6f9; font-family: Arial, sans-serif; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { text-align: center; color: #333; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 15px; }
+        .chart { width: 100%; height: 380px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>淘宝用户行为数仓 - 可视化大屏</h1>
+        <div class="grid">
+            <div class="card"><div id="funnelChart" class="chart"></div></div>
+            <div class="card"><div id="trendChart" class="chart"></div></div>
+            <div class="card"><div id="topnChart" class="chart"></div></div>
+            <div class="card"><div id="repurchaseChart" class="chart"></div></div>
+        </div>
+    </div>
+    <script>
+        const funnelChart = echarts.init(document.getElementById('funnelChart'));
+        const trendChart = echarts.init(document.getElementById('trendChart'));
+        const topnChart = echarts.init(document.getElementById('topnChart'));
+        const repurchaseChart = echarts.init(document.getElementById('repurchaseChart'));
+
+        // 1. 漏斗和趋势
+        fetch('/api/funnel').then(res => res.json()).then(res => {
+            const data = res.data;
+            if(!data || data.length === 0) return;
+
+            // 漏斗
+            let totalPv = 0, totalCart = 0, totalBuy = 0;
+            data.forEach(item => { totalPv += item.pv; totalCart += item.cart_cnt; totalBuy += item.buy_cnt; });
+            funnelChart.setOption({
+                title: { text: '整体转化漏斗', left: 'center' },
+                tooltip: { trigger: 'item', formatter: '{a} <br/>{b}: {c} ({d}%)' },
+                series: [{
+                    name: '转化漏斗', type: 'funnel', left: '10%', width: '80%',
+                    label: { formatter: '{b}\n{c}' },
+                    data: [
+                        { value: totalPv, name: 'PV (浏览)' },
+                        { value: totalCart, name: 'Cart (加购)' },
+                        { value: totalBuy, name: 'Buy (购买)' }
+                    ].sort((a, b) => b.value - a.value)
+                }]
+            });
+
+            // 趋势（双Y轴）
+            const dates = data.map(item => item.dt);
+            const pvData = data.map(item => item.pv);
+            const buyData = data.map(item => item.buy_cnt);
+            trendChart.setOption({
+                title: { text: 'PV与购买量趋势（双轴）', left: 'center' },
+                tooltip: { trigger: 'axis' },
+                legend: { data: ['PV', '购买量'], top: 30 },
+                xAxis: { type: 'category', data: dates, axisLabel: { rotate: 45 } },
+                yAxis: [
+                    { type: 'value', name: 'PV' },
+                    { type: 'value', name: '购买量' }
+                ],
+                series: [
+                    { name: 'PV', type: 'line', data: pvData, smooth: true, yAxisIndex: 0 },
+                    { name: '购买量', type: 'line', data: buyData, smooth: true, yAxisIndex: 1, itemStyle: { color: '#91cc75' } }
+                ]
+            });
+        });
+
+        // 2. TopN商品
+        fetch('/api/topn').then(res => res.json()).then(res => {
+            const items = res.data.map(item => '商品' + item.item_id);
+            const counts = res.data.map(item => item.buy_cnt);
+            topnChart.setOption({
+                title: { text: `热销Top10商品 (${res.dt})`, left: 'center' },
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', data: items, axisLabel: { rotate: 45 } },
+                yAxis: { type: 'value' },
+                series: [{ type: 'bar', data: counts, itemStyle: { color: '#fac858' } }]
+            });
+        });
+
+        // 3. 复购率
+        fetch('/api/repurchase').then(res => res.json()).then(res => {
+            const rate = (res.data.repurchase_rate * 100).toFixed(2);
+            repurchaseChart.setOption({
+                title: { text: '整体复购率', left: 'center' },
+                series: [{
+                    type: 'gauge', startAngle: 180, endAngle: 0, min: 0, max: 100,
+                    progress: { show: true, width: 18 },
+                    detail: { valueAnimation: true, formatter: '{value}%', fontSize: 30, offsetCenter: [0, '50%'] },
+                    data: [{ value: rate, name: '复购率' }]
+                }]
+            });
+        });
+    </script>
+</body>
+</html>
